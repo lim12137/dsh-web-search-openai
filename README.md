@@ -1,81 +1,77 @@
 # dsh-web-search-openai
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+[![Version](https://img.shields.io/badge/version-0.5.2-green.svg)](./package.json)
 
-DeepSeek Harness (DSH) 的 **OpenAI 兼容 Responses API 网页搜索插件**，注册到 `ctx.web`（搜索能力接缝），仿照官方 [`@deepseek-ai/dsh-web-search-deepseek`](https://www.npmjs.com/package/@deepseek-ai/dsh-web-search-deepseek) 的形态实现。
+DeepSeek Harness (DSH) 的**统一网页搜索聚合插件**：把免 Key 的 [Parallel Search MCP](https://search.parallel.ai/mcp) 与 OpenAI 兼容 **Responses API 中转**（内建 `web_search` 服务端工具）串成一条可配置的降级链，注册到 `ctx.web` 搜索接缝，并自带设置页卡片。
 
-**核心理念：模型、Base URL、API Key 全部读取自 DSH 已有的模型配置，零重复输入。**
+仿照官方 [`@deepseek-ai/dsh-web-search-deepseek`](https://www.npmjs.com/package/@deepseek-ai/dsh-web-search-deepseek) 的形态实现。
 
-- 模型目录：`~/.dsh/settings.yaml` 的 `llm-pi-ai.providers`（各 provider 的 `baseURL` + `apiKeyEnv` + `models[]`）
-- 凭据：每个 provider 的 `apiKeyEnv` 对应 `~/.dsh/.credentials.yaml` 中的条目（经 DSH credentials 服务解析）
-- 本插件只持久化"选择"，配置写在会话工作区 `.env`，每次搜索实时重读，改完即生效
+**核心理念：模型、Base URL、API Key 全部读取自 DSH 已有的模型配置，零重复输入；插件只持久化"选择"。**
 
-## 工作方式
+## 特性
 
-### 1. 服务端搜索工具按模型名自动匹配
+- **链式后端**：`WEB_SEARCH_CHAIN=parallel,openai`（默认），任一档成功即返回，失败/无引用自动落下一档
+- **Parallel 档**：MCP streamable HTTP（initialize → tools/call `web_search`），无需任何 Key
+- **OpenAI 档**：模型目录读自 `~/.dsh/settings.yaml` 的 `llm-pi-ai.providers`，凭据经 credentials 服务解析 `apiKeyEnv`
+- **工具按模型名匹配**：`grok` → `web_search`(+`x_search`)；`4o/4.1/preview` → `web_search_preview`；其余 → `web_search`
+- **无引用即降级**：200 但零 `url_citation` 视为未真搜，换下一档；全部失败才回退无引用回答（`searched: false`）
+- **思考强度可调**：`WEB_SEARCH_REASONING=auto|minimal|low|medium|high`（实测搜索任务 `minimal` 比 `auto` 快 ~32% 且引用不降）
+- **错误纪律**：三态错误码（`WEB_ABORTED` / `WEB_PROVIDER_CREDENTIAL_MISSING` / `WEB_PROVIDER_ERROR`）、取消传播整条链、`redirect:'error'` 防 Bearer 泄漏、`store:false` 不留服务端副本、结果去重 + `maxResults` 截断
 
-| 模型名包含 | 自动挂载的服务端工具 |
-| --- | --- |
-| `grok` | `web_search`（可加挂 `x_search`，搜 X/Twitter，支持解析 `x_handle` 引用） |
-| `4o` / `4.1` / `preview` | `web_search_preview` |
-| 其他（gpt-5.x 等） | `web_search` |
+## 真实测试数据（2026-08-22，中转 ai.input.im）
 
-### 2. 自动 / 手动两种模式
+| 档位 | 结果 | 耗时 |
+| --- | --- | --- |
+| Parallel MCP | ✅ 10 条来源 | 3–5 s |
+| gpt-5.6-luna + web_search | ✅ 带引用回答 | 12.5–22 s |
+| 同上 + `reasoning:minimal` | ✅ 引用数不变 | **12.5 s** |
+| gpt-5.4-mini | ⚠️ 200 但零引用 → 链内自动降级 | ~9–20 s |
 
-- **auto（默认）**：GPT 类模型按模型配置顺序先试，Grok 类收尾；顺序可用 `DSH_SEARCH_AUTO_ORDER` 覆盖
-- **manual**：只用 `DSH_SEARCH_MODEL=provider::模型` 指定的单一模型
-
-### 3. 无引用即降级
-
-某档返回 200 但**没有任何 `url_citation` / `x_handle` 引用**时，视为该中转/模型未真正执行服务端搜索，自动降级下一档；全部降级完仍无引用，才回退返回无引用回答（`sources: []`，工具输出带 `searched: false`）。401/403/429 鉴权限流类错误快速失败不空转。
+> 前提：所选模型走的中转必须**真·OpenAI 透传**（原样转发 `/responses` 且保留内建 server tool）。若中转剥掉 `tools` 字段，所有档位都会得到"200 但无引用"的回答——本插件会诚实地把它标记为未搜索而不是假装成功。
 
 ## 安装
 
 ```sh
-# 方式一：dsh 插件命令（本地目录）
-dsh plugin --profile <你的profile> add ./dsh-web-search-openai
-
-# 方式二：npm 打包后安装
-npm pack            # 生成 dsh-web-search-openai-0.2.0.tgz
-dsh plugin --profile <你的profile> add ./dsh-web-search-openai-0.2.0.tgz
+dsh plugin --profile <你的profile> add <本目录路径>
+# 或 npm pack 后 add 生成的 tgz
 ```
 
-或在部署的 `cordis.yml` 中手动加一行（以实际 loader 语法为准）：
+安装即以 bundle patch 形式生效（本包自带 `cordis.patch.yml`：插入自身行、把 `web.searchProvider` 切到 `openai-responses`、停用官方 deepseek 行）。安装后重启对应 Profile。
 
-```yaml
-- id: web-search-openai
-  name: dsh-web-search-openai
-```
+### 写 patch 的铁律（踩坑实录）
 
-安装后重启对应 Profile / 进程生效。
+- bundle 列表里的包会贡献自己的 `cordis.patch.yml` 作为一层；**只能 insert 没有任何更早层创建过的 id**——重复插入既有 id（如 dsh-base 已插入的 `web`）会让整个 profile 启动崩溃：`duplicate loader entry id: web`
+- 裸行 `- id: x / config:` 是**整行 config 替换**语义，必须重申该行拥有的全部键
+- `link:` 依赖在 `profiles/*/node_modules/` 下可能是物理拷贝——改完源码记得两处同步（或用 `pnpm install` 让它变成 junction）
 
-## 设置面板（settings section）
-
-静态安装后，DSH 设置页会出现 **「web-search-openai」** 区块（经 `installSettingsSection` 注册），字段与 `.env` 一一对应：模式 / 指定模型 / 自动链顺序 / x_search / 兜底 Key 与 Base URL / 输出上限 / 超时。
-
-优先级：**设置面板保存过的值 > 工作区 `.env` > 内置默认**。首次安装时区块会自动预填工作区 `.env` 的当前值；未保存过的字段继续跟随 `.env` 热更新。
-
-## 配置（会话工作区 `.env`）
+## 配置（会话工作区 `.env`，每次搜索实时重读）
 
 ```ini
-DSH_SEARCH_MODE=auto                    # auto | manual
-DSH_SEARCH_MODEL=                       # manual 模式：input::grok-4.6 这样的 provider::模型
-DSH_SEARCH_AUTO_ORDER=                  # auto 链覆盖：provider::模型1,provider::模型2,...
-DSH_SEARCH_XSEARCH=0                    # 1 = 对 grok 类加挂 x_search
-DSH_SEARCH_FALLBACK_KEY=                # 手动兜底 Key（仅当选中模型在模型配置中解析不到凭据时用）
-DSH_SEARCH_FALLBACK_BASE_URL=
-DSH_SEARCH_MAX_OUTPUT_TOKENS=4000
-DSH_SEARCH_TIMEOUT_MS=120000
+WEB_SEARCH_CHAIN=parallel,openai         # 引擎顺序
+WEB_SEARCH_MODE=auto                     # auto | manual
+WEB_SEARCH_MODEL=                        # manual：input::gpt-5.6-luna 这样的 provider::模型
+WEB_SEARCH_AUTO_ORDER=                   # auto 链覆盖：provider::模型1,provider::模型2,...
+WEB_SEARCH_XSEARCH=0                     # 1 = 对 grok 类加挂 x_search
+WEB_SEARCH_REASONING=low                 # auto(不传)|minimal|low|medium|high
+WEB_SEARCH_FALLBACK_KEY=                 # 兜底 Key（仅当选中模型解析不到凭据时用）
+WEB_SEARCH_FALLBACK_BASE_URL=
+WEB_SEARCH_MAX_OUTPUT_TOKENS=4000
+WEB_SEARCH_TIMEOUT_MS=120000
 ```
 
-> 前提：所选模型走的中转必须**真·OpenAI 透传**（原样转发 `/responses` 且保留内建 server tool）。若中转剥掉 `tools` 字段，所有档位都会得到"200 但无引用"的回答——本插件会诚实地把它标记为未搜索而不是假装成功。
+> ⚠️ **变量名禁止用 `DSH_` 前缀**：harness 启动守卫会把启动目录与 `$DSH_HOME` 下 `.env` 里的任何 `DSH_*` 变量视为"仅启动环境可设"，直接拒绝启动（`only the launching environment may set`）。旧版 `DSH_SEARCH_*` 名仍可作为**导出的真实环境变量**被兼容读取。
+
+## 设置面板
+
+静态安装后，DSH 设置 → 插件出现 **「web-search-openai」** 卡片，字段与 `.env` 一一对应：引擎顺序 / 模式 / 手动模型 / 自动链顺序 / 思考强度 / x_search 开关 / 兜底 Key 与 Base URL / 输出上限 / 超时。
+
+优先级：**设置面板保存过的值 > 工作区 `.env` > 内置默认**。首次安装时卡片自动预填工作区 `.env` 当前值；未保存的字段继续跟随 `.env` 热更新。
 
 ## 使用
 
-注册后即可通过两条路径使用：
-
 1. **Agent 工具**：`openai_web_search`（参数 `query`、可选 `max_results`）
-2. **Web 接缝**：`ctx.web.search()` 在 provider 选择命中 `openai-responses` 时走本插件
+2. **Web 接缝**：`ctx.web.search()` 在 provider 命中 `openai-responses` 时走本插件
 
 ## License
 

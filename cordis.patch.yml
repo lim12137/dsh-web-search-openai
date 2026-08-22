@@ -1,19 +1,29 @@
-# The dsh-web-search-openai bundle patch: registers the OpenAI-compatible
-# Responses API search provider + the direct openai_web_search model tool.
+# The dsh-web-search-openai bundle patch: registers the unified search
+# aggregator (Parallel MCP -> OpenAI Responses chain) + the direct
+# openai_web_search model tool.
 #
-# Model/credential resolution happens at search time from the DSH model
-# configuration (`llm-pi-ai.providers` + the credential store); the selection
-# lives in the session workspace .env and this plugin's settings section.
-#
-# The second entry switches the shared `web` seam's configured search provider
-# to this plugin so ctx.web.search() routes here too. Remove that entry (or
-# point searchProvider back at deepseek-official) to restore the shipped route.
+# Loader rules that bit us before (see the 2026-08-22 boot-fault record):
+#   * A bundle listed in dsh.profile.bundles contributes THIS file as one
+#     patch layer. Insert ONLY row ids that no earlier layer creates —
+#     re-inserting an existing id (e.g. `web`, which @deepseek-ai/dsh-base
+#     already inserts) crashes the boot with "duplicate loader entry id: web".
+#   * A bare `- id: x / config:` row REPLACES the targeted row's whole
+#     config, so it must restate every key it owns. The shipped `web` row
+#     owns exactly one key (searchProvider), so the override below is
+#     complete.
 
 - insert:
     - id: web-search-openai
       name: dsh-web-search-openai
 
-    - id: web
-      name: '@deepseek-ai/dsh-web'
-      config:
-        searchProvider: openai-responses
+# Switch the shared `web` seam's configured search provider to this plugin
+# so ctx.web.search() routes here. Remove this entry (or point searchProvider
+# back at deepseek-official) to restore the shipped route.
+- id: web
+  config:
+    searchProvider: openai-responses
+
+# The official DeepSeek search provider would fight for the same seam; keep
+# the row mounted but disabled while this aggregator owns the route.
+- id: web-search-deepseek
+  disabled: true
