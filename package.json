@@ -10,9 +10,15 @@
   },
   "files": [
     "lib/index.js",
+    "cordis.patch.yml",
     "README.md"
   ],
   "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/lim12137/dsh-web-search-openai.git"

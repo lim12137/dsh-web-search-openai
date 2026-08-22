@@ -1,0 +1,19 @@
+# The dsh-web-search-openai bundle patch: registers the OpenAI-compatible
+# Responses API search provider + the direct openai_web_search model tool.
+#
+# Model/credential resolution happens at search time from the DSH model
+# configuration (`llm-pi-ai.providers` + the credential store); the selection
+# lives in the session workspace .env and this plugin's settings section.
+#
+# The second entry switches the shared `web` seam's configured search provider
+# to this plugin so ctx.web.search() routes here too. Remove that entry (or
+# point searchProvider back at deepseek-official) to restore the shipped route.
+
+- insert:
+    - id: web-search-openai
+      name: dsh-web-search-openai
+
+    - id: web
+      name: '@deepseek-ai/dsh-web'
+      config:
+        searchProvider: openai-responses
