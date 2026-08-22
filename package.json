@@ -1,7 +1,7 @@
 {
   "name": "dsh-web-search-openai",
   "description": "OpenAI-compatible Responses API search provider for the DeepSeek Harness web capability seam (ctx.web). Models and credentials are read from the DSH model configuration (settings + credentials store); the server search tool is auto-selected by model name (grok -> web_search [+x_search], 4o/4.1/preview -> web_search_preview, others -> web_search); auto/manual model chains with no-citation fallthrough.",
-  "version": "0.6.0",
+  "version": "0.6.2",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
