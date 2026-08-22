@@ -49,6 +49,12 @@ dsh plugin --profile <你的profile> add ./dsh-web-search-openai-0.2.0.tgz
 
 安装后重启对应 Profile / 进程生效。
 
+## 设置面板（settings section）
+
+静态安装后，DSH 设置页会出现 **「web-search-openai」** 区块（经 `installSettingsSection` 注册），字段与 `.env` 一一对应：模式 / 指定模型 / 自动链顺序 / x_search / 兜底 Key 与 Base URL / 输出上限 / 超时。
+
+优先级：**设置面板保存过的值 > 工作区 `.env` > 内置默认**。首次安装时区块会自动预填工作区 `.env` 的当前值；未保存过的字段继续跟随 `.env` 热更新。
+
 ## 配置（会话工作区 `.env`）
 
 ```ini
