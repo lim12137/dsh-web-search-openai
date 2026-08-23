@@ -39,6 +39,17 @@ dsh plugin --profile <你的profile> add <本目录路径>
 
 安装即以 bundle patch 形式生效（本包自带 `cordis.patch.yml`：插入自身行、把 `web.searchProvider` 切到 `openai-responses`、停用官方 deepseek 行）。安装后重启对应 Profile。
 
+### `link:` 开发安装的裸导入解析要求
+
+本插件 `lib/index.js` 裸导入 `@deepseek-ai/dsh-web`、`@deepseek-ai/dsh-settings`、`@deepseek-ai/schemastery`。pnpm `link:` 安装时 Node 会把 junction 解析回本目录真实路径再解析 import，**宿主包必须在插件目录内可达**，否则 dsh 启动即崩（`ERR_MODULE_NOT_FOUND`，详见排障总结第十一条铁律）。运行仓库根目录的 `link-host-deps.cmd` 一键补齐三个 junction：
+
+```bat
+link-host-deps.cmd                                  &rem 默认指向 DshTray 自包含运行时
+link-host-deps.cmd "C:\...\node_modules\@deepseek-ai\dsh\node_modules"   &rem 或系统 dsh 的嵌套 node_modules
+```
+
+运行时目录移动/重装后需重跑（junction 为绝对路径）。
+
 ### 写 patch 的铁律（踩坑实录）
 
 - bundle 列表里的包会贡献自己的 `cordis.patch.yml` 作为一层；**只能 insert 没有任何更早层创建过的 id**——重复插入既有 id（如 dsh-base 已插入的 `web`）会让整个 profile 启动崩溃：`duplicate loader entry id: web`
